@@ -1,0 +1,671 @@
+---
+title: "Survival Analysis of Heroin Addiction Treatment: A Comparative Study of Methadone Treatment Clinics"
+author: "Pranjal Srivastava"
+date: "5/10/2023"
+output:
+    pdf_document:
+       latex_engine: xelatex
+    highlight: pygments
+    toc: yes
+    toc_float: yes
+---
+
+
+Introduction:
+
+This report presents a survival analysis of the "addicts" dataset, which contains data on 238 heroin addicts undergoing treatment in two distinct methadone treatment clinics. Methadone, a synthetic opiate widely used to alleviate heroin addiction, serves to counteract the effects of heroin and successfully eradicate withdrawal symptoms. The primary goal of this analysis is to evaluate the duration that patients persist in methadone treatment, offering critical insights into the effectiveness of the different therapeutic approaches employed by each clinic.
+
+The two clinics under study follow divergent patient management policies - one clinic maintains a live-in program, while the other does not necessitate residential commitments. By assessing the impact of these contrasting environments on the treatment's duration, this analysis aims to contribute valuable insights towards developing effective and sustainable interventions for heroin addiction.
+
+
+
+```{r, message=FALSE,warning=FALSE}
+library(survival)
+library(survminer)
+library(ggfortify)
+library(tidyverse)
+setwd("/Users/pranjalsrivastava/Desktop/Projects/Clinical_Trial_Study")
+data <- read.csv("addicts.csv")
+head(data)
+
+```
+
+
+# Kaplan Meier estimates by clinic and separately, by prison record 
+```{r}
+
+## By Clinic
+km_clin <- survfit(Surv(survtime,status) ~ clinic, data)
+summary(km_clin)
+autoplot(km_clin)
+
+
+## By Prison record
+km_pris <- survfit(Surv(survtime,status) ~ prison, data)
+summary(km_pris)
+autoplot(km_pris)
+
+```
+
+# 2 Graphical evaluation of the proportional hazards assumption for clinic and separately, for prison. 
+
+```{r}
+
+## I will be evaluating the proportional hazards assumption using KM estimates
+
+
+## By Clinic
+lmod1 <- coxph(Surv(survtime, status) ~ strata(clinic), data = data, ties="breslow")
+fit0=basehaz(lmod1,centered=FALSE)
+fit01=fit0[fit0$strata=="clinic=1",]
+fit00=fit0[fit0$strata=="clinic=2",]
+
+# Create a data frame with the log-transformed time and hazard values for fit00
+data_fit00 <- data.frame(time = log(fit00$time), hazard = log(fit00$hazard))
+
+# Create a data frame with the log-transformed time and hazard values for fit01
+data_fit01 <- data.frame(time = log(fit01$time), hazard = log(fit01$hazard))
+
+# Create the plot
+ggplot() +
+geom_point(data = data_fit00, aes(x = time, y = hazard), 
+             shape = "+" , size = 4,
+             color = "skyblue") +
+geom_point(data = data_fit01, aes(x = time, y = hazard),
+             shape = "+" , size = 4, 
+             color = "orange") +
+ylab("log(-log(S(t,Z)) for clinic") +
+xlab("log(t)")
+
+```
+
+```{r}
+
+## By Prison
+
+lmod2 <- coxph(Surv(survtime, status) ~ strata(prison), data = data, ties="breslow")
+fit0=basehaz(lmod2,centered=FALSE)
+fit01=fit0[fit0$strata=="prison=0",]
+fit00=fit0[fit0$strata=="prison=1",]
+
+# Create a data frame with the log-transformed time and hazard values for fit00
+data_fit00 <- data.frame(time = log(fit00$time), hazard = log(fit00$hazard))
+
+# Create a data frame with the log-transformed time and hazard values for fit01
+data_fit01 <- data.frame(time = log(fit01$time), hazard = log(fit01$hazard))
+
+# Create the plot
+ggplot() +
+geom_point(data = data_fit00, aes(x = time, y = hazard), 
+             shape = "+" , size = 4, color = "skyblue") +
+geom_point(data = data_fit01, aes(x = time, y = hazard), 
+             shape = "+" , size = 4, color = "orange") +
+ylab("log(-log(S(t,Z)) for prison") +
+xlab("log(t)")
+```
+
+
+### From the graph for clinic, we can see that the lines cross in the initial point and then move parallel which shows the assumption of Proportional Hazard holds. 
+
+### While from the graph for prison, the lines are crossing each other at multiple points and are not parallel to each other. Which violates the Proportional hazard assumption.
+
+# A Cox PH model to assess the unadjusted effect of clinic on time to treatment drop and provide the estimated Hazard ratio and a 95% confidence interval for Clinic 1 vs Clinic 2.
+
+```{r}
+
+
+# Fit the Cox proportional hazards model
+cox_model <- coxph(Surv(survtime, status) ~ factor(clinic), data = data, ties="breslow")
+
+# Get the hazard ratio and 95% confidence interval for Clinic 1 vs Clinic 2
+cox_summary <- summary(cox_model)
+
+# Extract the hazard ratio and confidence intervals
+hazard_ratio <- exp(cox_model$coefficients)
+
+ci <- c(cox_summary$conf.int[3], cox_summary$conf.int[4])
+
+
+# Print the results
+cat("Hazard Ratio (Clinic 1 vs Clinic 2):", round(hazard_ratio, 3), "\n")
+cat("95% Confidence Interval:", round(ci, 3))
+```
+
+# Based on the unadjusted model, the predicted probability (the Breslow estimator) of remaining in treatment at Clinic 1 for at least 60 days and the probability of remaining in treatment for at least 60 days at Clinic 2?
+
+```{r}
+#The predicted probability (the Breslow estimator) for Clinic 1
+
+fit1 = predict(cox_model, newdata=list(survtime = 60, 
+                    status = 1, clinic="1"),
+               data=data, type="expected")
+p1 = exp(-fit1)
+
+# The predicted probability (the Breslow estimator) for Clinic 2
+
+fit2 = predict(cox_model, newdata=list(survtime = 60, 
+                    status = 1, clinic="2"), 
+               data=data, type="expected")
+p2 = exp(-fit2)
+
+cat("The predicted probability (the Breslow estimator) for Clinic 1:", p1, "\n")
+cat("The predicted probability (the Breslow estimator) for Clinic 2:", p2, "\n")
+
+```
+
+# Likelihood Ratio Test on different models.
+
+```{r}
+Likelihood = c(1411.70, 1380.60, 1410.56, 1374.91, 1378.03, 
+               1350.85, 1373.70, 1347.35, 1344.82, 1346.65, 1346.84)
+parameter = c(0, 1, 1, 1, 2, 2, 2, 3, 4, 4, 4)
+
+parameter_alpha = 2*parameter
+
+Models = c(1:11)
+
+AIC = Likelihood + parameter_alpha
+
+table = data.frame(Models, Likelihood, AIC)
+print(table)
+
+```
+# The strongest predictor of time to treatment dropout in this study
+
+To determine the strongest predictor of time to treatment dropout, I performed the LR test by comparing the likelihoods of the model with the predictors, to the likelihoods of the null model. Specifically, we will compare the model 1 with model 2, model 3 and model 4.
+
+1. Lets start with performing LR test on model 1 that is "Null Model" and Model 2 (Clinic).
+                             
+                             Here are the relevant models to consider:
+
+                          Model 1: Includes no predictor.
+                       Model 2: Includes only the "clinic" variable.
+
+                      From the table, we have the log-likelihood values:
+
+                            Log-likelihood of Model 1: 1411.70
+                             Log-likelihood of Model 2: 1380.60
+
+                      Substituting these values into the formula, we get:
+
+                                   X2LR = 1411.70 - 1380.60 
+                                          = 31.1
+     
+                   The degrees of freedom for the likelihood ratio test is 1.
+                             p_value = 1 - pchisq(31.1, df = 1)
+                                       = 2.450714e-08 < 0.001
+                                       
+2. Similarly, for model 3 and model 1,
+
+                          Here are the relevant models to consider:
+
+                          Model 1: Includes no predictor.
+                        Model 3: Includes only the "prison" variable.
+
+                      From the table, we have the log-likelihood values:
+
+                            Log-likelihood of Model 1: 1411.70
+                             Log-likelihood of Model 3: 1410.56
+
+                      Substituting these values into the formula, we get:
+
+                                   X2LR = 1411.70 - 1410.56 
+                                          = 1.14
+     
+                   The degrees of freedom for the likelihood ratio test is 1.
+                             p_value = 1 - pchisq(1.14, df = 1)
+                                       = 0.286
+3. For model 4 and model 1,                                        
+                                       
+                          Here are the relevant models to consider:
+
+                          Model 1: Includes no predictor.
+                       Model 4: Includes only the "maxdose" variable.
+
+                    From the table, we have the log-likelihood values:
+
+                            Log-likelihood of Model 1: 1411.70
+                             Log-likelihood of Model 4: 1374.91
+
+                    Substituting these values into the formula, we get:
+
+                                   X2LR = 1411.70 - 1374.91 
+                                          = 36.79
+     
+                   The degrees of freedom for the likelihood ratio test is 1.
+                             p_value = 1 - pchisq(36.79, df = 1)
+                                       = 1.315634e-09 < 0.001
+                                       
+                                       
+From the LR test results, it is shown that the model 2 and model 4 are significant. Having lowest p-value, we can conclude that, model 4 with predictor "maxdose" is the most important variable in predicting time to treatment dropout in this study.                                                  
+
+### To check whether prior priosn record should be adusted or not, while comparing the effects of 2 clinics; we will compare model 2 (only clinic) with model 5(clinic and prison)
+
+                             Here are the relevant models to consider:
+
+                          Model 2: Includes only the "clinic" variable.
+                     Model 5: Includes both the "clinic" and "prison" variables.
+
+                          From the table, we have the log-likelihood values:
+
+                            Log-likelihood of Model 2: 1380.60
+                             Log-likelihood of Model 5: 1378.03
+
+                            Substituting these values into the formula, we get:
+
+                                   X2LR = 1380.60 - 1378.03 
+                                          = 2.57
+     
+                   the degrees of freedom for the likelihood ratio test is 1.
+                             p_value = 1 - pchisq(2.57, df = 1)
+                                       = 0.1089077
+                            
+                           
+## Since, the p-value is not significant, we can conclude that adjusting for prison is not making any significant change here based on the likelihood ratio test.
+
+# Best Model on the basis of AIC value.
+
+```{r}
+table$Models[which.min(table$AIC)]
+
+```
+
+
+### Comparing the AIC values from the table above, we can see that model 9 has the lowest AIC value, tat concludes that Model has the best fit, which includes the clinic variable, prison variable, maxdose variable, and the interaction between clinic and prison.
+
+## The interaction term in model 9 has the best model fit as compared to other models without interaction term, as we can notice from the AIC criterion. The AIC values are comparatively lower for the model with interaction time
+
+
+# Fitting model (9) to the data to find the estimated coefficients and estimated hazard ratio for dropping out for someone in Clinic 1 with a prior prison record and maxdose of 55 versus someone in Clinic 2 with a prior prison record and maxdose of 55. 
+
+## Estimated hazard ratio for dropping out for someone in Clinic 1 with no prior prison record and maxdose of 55 versus someone in Clinic 2 with no prior prison record
+
+```{r}
+
+## Model Fitting for model 9
+mod9 <- coxph(Surv(survtime, status) ~ clinic + prison + 
+                dose + clinic*prison, data = data, ties="breslow")
+
+## Estimated Coefficients
+summary(mod9)$coef
+```
+
+The Cox model with terms for clinic variable, prison variable, maxdose variable, and the interaction between clinic and prison can be written in terms of the hazard functions as:
+\fontsize{10}{15}
+\begin{center}
+
+$\lambda(t;) = \lambda_o(t)*exp(\beta_{1}*Clinic + \beta_{2}*Prison + \beta_{3}*Dose + \beta_{4}*Clinic*Prison)$ \\
+$\lambda(t;) = \lambda_o(t)*exp((-0.664)*Clinic + 1.131*Prison + (-0.0368)*Dose + (-0.682)*Clinic*Prison)$ 
+
+\end{center}
+\fontsize{8}{12}
+
+\fontsize{10}{15}
+\begin{center}
+
+where $\lambda(t;)$ is the hazard function at time t for an individual with covariate values x, $\lambda_o(t)$ is the baseline hazard at time t, and $\beta_1$, $\beta_2$, $\beta_3$, and $\beta_4$ are the regression coefficients for clinic, prison record, maxdose and the interaction between clinic and prison, respectively.
+
+\end{center}
+\fontsize{8}{12}
+
+
+### Estimated hazard ratio for dropping out for someone in Clinic 1 with a prior prison record and maxdose of 55 versus someone in Clinic 2 with a prior prison record and maxdose of 55
+
+
+\fontsize{10}{15}
+\begin{center}
+ 
+
+$\text{For patient in clinic 1 with prior prison record, when maxdose = 55}$ \\
+
+$\lambda_{clinic1} = \lambda_o(t)*exp((-0.664)*1 + 1.131*1 + (-0.0368)*55 + (-0.682)*1*1)$ \\
+
+$\lambda_{clinic1} = \lambda_o(t)*exp(-2.239) $\\
+
+$\text{For patient in clinic 2 with prior prison record, when maxdose = 55} $\\
+
+$\lambda_{clinic2} = \lambda_o(t)*exp((-0.664)*2 + 1.131*1 + (-0.0368)*55 + (-0.682)*2*1)  $\\
+
+$\lambda_{clinic2} = \lambda_o(t)*exp(-3.585) $ \\
+
+$\phi = \lambda_{clinic1}/\lambda_{clinic2} $\\
+
+$\phi = 0.067564/0.0854042 $\\ 
+
+$\phi = 3.842027 $
+
+\end{center}
+\fontsize{8}{12}
+
+
+### Estimated hazard ratio for dropping out for someone in Clinic 1 with no prior prison record and maxdose of 55 versus someone in Clinic 2 with no prior prison record and maxdose of 55
+
+
+\fontsize{10}{15}
+\begin{center}
+ 
+
+$\text{For patient in clinic 1 with no prior prison record, when maxdose = 55}$ \\
+
+$\lambda_{clinic1} = \lambda_o(t)*exp((-0.664)*1 + 1.131*0 + (-0.0368)*55 + (-0.682)*1*1)$ \\
+
+$\lambda_{clinic1} = \lambda_o(t)*exp(-3.37) $\\
+
+
+$\text{For patient in clinic 2 with no prior prison record, when maxdose = 55} $\\
+
+$\lambda_{clinic2} = \lambda_o(t)*exp((-0.664)*2 + 1.131*0 + (-0.0368)*55 + (-0.682)*2*1)  $\\
+
+$\lambda_{clinic2} = \lambda_o(t)*exp(-4.716) $ \\
+
+$\phi = \lambda_{clinic1}/\lambda_{clinic2} $\\
+
+$\phi = 0.03438964/0.008950911 $\\ 
+
+$\phi = 3.842027 $
+
+\end{center}
+\fontsize{8}{12}
+
+# checking the assumption of proportional hazards for “clinic”, adjusting for “prison” and “maxdose”.
+
+```{r}
+
+## Model Fitting for model 8 (main effects)
+mod8 <- coxph(Surv(survtime, status) ~  (prison+dose) + strata(clinic), data = data, ties="breslow")
+fit0=basehaz(mod8,centered=FALSE)
+fit01=fit0[fit0$strata=="clinic=1",]
+fit00=fit0[fit0$strata=="clinic=2",]
+
+# Create a data frame with the log-transformed time and hazard values for fit00
+data_fit00 <- data.frame(time = log(fit00$time), hazard = log(fit00$hazard))
+
+# Create a data frame with the log-transformed time and hazard values for fit01
+data_fit01 <- data.frame(time = log(fit01$time), hazard = log(fit01$hazard))
+
+# Create the plot
+ggplot() +
+  geom_point(data = data_fit00, aes(x = time, y = hazard), shape = "+" , size = 4, color = "skyblue") +
+  geom_point(data = data_fit01, aes(x = time, y = hazard), shape = "+" , size = 4, color = "orange") +
+  ylab("log(-log(S(t,Z))") +
+  xlab("log(t)")
+```
+
+### The groups in the graph looks mostly parallel, so we can conclude that the assumption for proportional hazard holds.
+
+# 7b  An alternative way to test for proportional hazards is to include a clinic × g(t) interaction term. 
+
+## Fitting the Cox model including this time- dependent covariate, where g(t) = (t − 500)/90, so that the resulting effect can be interpreted as the change in log(HR) for the “clinic” effect for each additional 3 months in the treatment program. 
+
+```{r}
+# Create a time-dependent dataset using tmerge
+data_time_dependent <- tmerge(data, data, id = ID, tstart = survtime, tstop = survtime + 3*30)
+
+head(data_time_dependent)
+
+# Create the time-dependent covariate
+data_time_dependent$g_t <- (data_time_dependent$tstop - 500) / 90
+
+# Fit the Cox model with time-dependent covariate
+fit_time_dependent <- coxph(Surv(tstart, tstop, status) ~
+                              factor(clinic) + factor(prison) + dose + g_t:clinic, data = data_time_dependent)
+
+summary(fit_time_dependent)
+
+
+## At 100,
+fit100 = predict(fit_time_dependent, newdata=list(tstart = 0, 
+                     tstop=100,prison=0,dose=0, 
+        status = 1, clinic = 1, g_t = 0), 
+        data=data_time_dependent, type="expected") 
+
+exp(-fit100)
+
+## At 500,
+fit500 = predict(fit_time_dependent, newdata=list(tstart = 0, 
+          tstop=500,prison=0,dose=0, status = 1, clinic = 1, g_t = 0),
+          data=data_time_dependent, type="expected") 
+
+exp(-fit500)
+
+## At 700,
+fit700 = predict(fit_time_dependent, newdata=list(tstart = 0, 
+             tstop=700,prison=0,dose=0, status = 1, clinic = 1, g_t = 0), 
+             data=data_time_dependent, type="expected") 
+
+exp(-fit700)
+
+```
+
+
+### The coefficient for the clinic variable is -3.254345, which indicates that individuals from the second clinic have a significantly lower hazard (higher survival probability) compared to individuals from the first clinic (reference category).
+
+### The hazard ratio (HR) is calculated as exp(coef), which is 0.038606. This means that the hazard of treatment dropout is 96.14% lower for individuals from the second clinic compared to the first clinic, adjusting for other covariates in the model.
+
+### Time-Dependent Effect: The coefficient for the interaction term clinic:g_t is -1.398387. This indicates that the effect of clinic on the hazard of treatment dropout changes over time. Specifically, for each additional 3 months in the treatment program (g_t), the hazard ratio of the clinic effect decreases by a factor of exp(coef), which is 0.246995. In other words, the difference in hazard between the two clinics becomes smaller as time progresses.
+
+
+# Since “maxdose” is a continuous variable, we would like to make sure that the relationship with log(HR) is a linear function of “maxdose”. One way to do this is to divide the maximum dose into 4 categories: (0,50] (values between 0 and 50, including 50), (50, 60], (60, 75], and > 75 then evaluate trends over these categories. 
+
+
+```{r}
+
+library(dplyr)
+library(lmtest)
+# Ordinal
+data <- data %>% 
+  dplyr::mutate(dose_ord = case_when(
+    dose <= 50 ~ 1,
+    dose <= 60 ~ 2,
+    dose <= 75 ~ 3,
+    TRUE ~ 4
+  ))
+
+data$dose_ord<- as.numeric(data$dose_ord)
+
+# categorical as factor of ordinal
+data$dose_cat_factor<- 0
+data$dose_cat_factor<- as.factor(data$dose_ord)
+
+head(data)
+
+
+
+## Fitting the model (Ordinal)
+
+Mod_ord <- coxph(Surv(survtime, status) ~ clinic + prison + 
+                dose_ord, data = data, ties="breslow")
+summary(Mod_ord)
+## Fitting the model (Categorical_factored)
+Mod_cat <- coxph(Surv(survtime, status) ~ clinic + prison + 
+                dose_cat_factor, data = data, ties="breslow")
+
+summary(Mod_cat)
+
+
+## Performing LR Test
+
+LL_diff<- (-2*(logLik(Mod_ord)-logLik(Mod_cat)))
+
+
+df<- 5-3 # from the degrees of freedom in the above mod
+
+p_value <-  pchisq(LL_diff, df, lower.tail=F)
+
+cat("p value of the LR Test:", p_value, "\n")
+
+```
+
+### Since the test is not significant at 95 % confidence interval with p_value being 0.1337, we conclude that there is no evidence of non-linearity. 
+
+# Now lets fit the Exponential, Weibull, and Lognormal models to the same outcome with three main effects (clinic, prison, maxdose) 
+
+
+```{r}
+## Exponential
+fitexp=survreg(Surv(survtime, status)~clinic + prison + 
+                dose,data=data,dist="exponential")
+
+## Weibull
+fitweib=survreg(Surv(survtime, status)~clinic + prison + 
+                dose,data=data,dist="weibull")
+
+
+## Lognormal
+
+fitLog=survreg(Surv(survtime, status)~clinic + prison + 
+                dose,data=data,dist="lognormal")
+
+
+df <- data.frame(models = rep(c("Exponential", "Weibull", "Lognormal"), each = 5))
+df$Parameters <- c("Intercept", "clinic", "prison", "maxdose", "Scale", "Intercept", "clinic",
+                   "prison", "maxdose", "Scale", "Intercept", "clinic", "prison", "maxdose", "Scale")
+
+df$Estimates <- c(3.66425626,  0.88623275, -0.24286726,  0.02897405,NA,
+                  4.07169587,0.71984592, -0.22319158,  0.02466327, -0.30059,
+                  3.34800051, 0.59624691, -0.28815075,  0.03394836,0.08569)
+
+df$SE <- c(0.43006, 0.21058, 0.16485, 0.00613, NA, 0.33228, 0.15951, 0.12245,
+           0.00464, 0.06759,0.40205, 0.17844, 0.15597, 0.00574,0.05931)
+
+df$p_value <- c("2e-16", "2.6e-05", "0.14", "2.3e-06", NA, 
+                "2e-16","6.4e-06", "0.068", "1.1e-07", "8.7e-06","2e-16",
+                "0.00083", "0.06468", "3.3e-09", "0.14851")
+
+df$Likelihood <- c(-1093.1, NA, NA, NA, NA, -1084.4, NA, NA, NA, NA,-1097.2, NA, NA, NA, NA)
+
+print(df)
+
+```
+
+
+# Writing the hazard as a function of the covariates based on the exponential model, including the estimated parameter values and calculating the estimated hazard rate for each clinic for those without prior prison record and at the maximum dose of 60 mg/day.
+
+```{r}
+library(eha)
+## Exponential
+phexp <- phreg(Surv(survtime, status)~clinic + prison + 
+                dose,data=data,dist="weibull", shape = 1) 
+# A special case like "exponential" in phreg can be obtained using "weibull" in combination with scale = 1. 
+
+summary(phexp)
+```
+
+The model with terms for clinic variable, prison variable, and maxdose variable can be written in terms of the hazard functions as:
+\fontsize{10}{15}
+\begin{center}
+
+$\lambda(t;) = \lambda_o(t)*exp(\beta_{1}*Clinic + \beta_{2}*Prison + \beta_{3}*Dose$ \\
+$\lambda(t;) = \lambda_o(t)*exp((-0.886)*Clinic + 0.243*Prison + (-0.029)*Dose)$ 
+
+\end{center}
+\fontsize{8}{12}
+
+\fontsize{10}{15}
+\begin{center}
+
+where $\lambda(t;)$ is the hazard function at time t for an individual with covariate values x, $\lambda_o(t)$ is the baseline hazard at time t, and $\beta_1$, $\beta_2$, and $\beta_3$ are the regression coefficients for clinic, prison record, and maxdose, respectively
+
+\end{center}
+\fontsize{8}{12}
+
+
+### The estimated hazard rate for each clinic for those without prior prison record and at the maximum dose of 60 mg/day.
+
+
+\fontsize{10}{15}
+\begin{center}
+ 
+
+$\text{For patient in clinic 1 without prior prison record, when maxdose = 60}$ \\
+
+$\lambda_{clinic1} = \lambda_o(t)*exp((-0.886)*1 + 0.243*0 + (-0.029)*60)$ \\
+
+$\lambda_{clinic1} = \lambda_o(t)*exp(-2.626) $\\
+
+$\text{For patient in clinic 2 without prior prison record, when maxdose = 60} $\\
+
+$\lambda_{clinic2} = \lambda_o(t)*exp((-0.886)*2 + 0.243*0 + (-0.029)*60)  $\\
+
+$\lambda_{clinic2} = \lambda_o(t)*exp(-3.512) $ \\
+
+$\phi = \lambda_{clinic1}/\lambda_{clinic2} $\\
+
+$\phi = 0.07236735/0.02983718 $\\ 
+
+$\phi = 2.425 $
+
+\end{center}
+\fontsize{8}{12}
+
+### For individuals without prior prison records and at the maximum dose of 60 mg/day: Clinic 1 has an estimated hazard rate that is 2.425 times higher than Clinic 2. This means that individuals in Clinic 1, who do not have a prior prison record and are receiving a maximum dose of 60 mg/day, have a 2.425 times higher risk of experiencing the event (such as dropout) compared to individuals in Clinic 2 with the same characteristics.
+
+# Let's check if the Weibull model provide a better fit to the data than the Exponential model. Of the three models considered, which seems to provide the best fit? 
+
+```{r}
+## Likelihood Ratio Test between Weibull model and Exponential model
+lrtest(fitexp, fitweib)
+
+## Likelihood Ratio Test between Weibull model and Lognormal model
+lrtest(fitLog, fitweib)
+
+## Likelihood Ratio Test between Exponential model and Lognormal model
+lrtest(fitLog, fitexp)
+```
+### From the result of the Likelihood Ratio Test using both models, it is depicted that the Weibull model has the better fit than the Exponential model as the p-value is less than 0.001 which demonstrates that the reults are significant at 5% confidence interval.
+
+### Among the 3 models, again the Weibull model has the best fit among all models, as being shown by all the LR tests performed. The p-value in the test was always lower for Weibull model as compared to Exponential model and Lognormal model.
+
+
+#  A randomized clinical trial is planned to investigate the effect of adaptive servo-ventilation on the mortality and morbidity of patients with stable heart failure. Patients will be randomized into either control (optimal medical management) or active treatment (optimal medical treatment plus use of adaptive servoventilation). The primary outcome is a time to first event of either all cause mortality or heart failure related hospitalization.
+
+
+
+# Assuming that the probability of the event within the first year is 35% and the intervention reduces the hazard rate by 20%. Assuming that the hazard rate is constant over time (i.e., exponential distributions). What are the corresponding hazard rates and the median survival times in the control and intervention groups?
+
+
+\fontsize{10}{15}
+\begin{center}
+
+Let's denote the hazard rate in the control group as $\lambda_{control}$ and the hazard rate in the intervention group as $\lambda_{intervention}$. We are given that the probability of the event within the first year is 35% or 0.35. Since the hazard rate is constant over time and follows an exponential distribution, we can use the formula:
+
+\end{center}
+\fontsize{8}{12}
+
+\fontsize{10}{15}
+\begin{center}
+
+$\lambda = -ln(1 - probability) / time$ \\
+
+1. Control Group:
+The probability of the event within the first year in the control group is 0.35. Therefore, we can calculate the hazard rate in the control group as follows:
+
+$\lambda_{control} = -ln(1 - 0.35) / 1 $ \\
+
+2.Intervention Group:
+The intervention reduces the hazard rate by 20%. Thus, the hazard rate in the intervention group is 20% lower than in the control group. We can calculate the hazard rate in the intervention group as follows:
+
+$\lambda_{intervention} = \lambda_{control} * (1 - 0.20)$ \\
+
+$ \text{Median survival time} = -ln(0.5) / \lambda $ \\
+
+Now, let's calculate the hazard rates and median survival times:
+
+Control Group:
+$ \lambda_{control} = -ln(1 - 0.35) / 1 $ \\
+= 0.4307829
+
+$ \text{Median survival time in the control group} = -ln(0.5) / \lambda_{control} $ \\
+= 1.609041
+
+Intervention Group:
+
+$ \lambda_{intervention} = λ_{control} * (1 - 0.20) $ \\
+= 0.3446263
+
+$ \text{Median survival time in the intervention group} = -ln(0.5) / \lambda_{intervention} $\\
+= 2.011301
+
+
+\end{center}
+\fontsize{8}{12}
