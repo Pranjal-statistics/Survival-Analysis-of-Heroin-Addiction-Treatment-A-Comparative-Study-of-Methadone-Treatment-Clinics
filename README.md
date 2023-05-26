@@ -1,3 +1,5 @@
+![Heroin Additction Treatment](Heroin.jpg.webp)
+
 # Survival-Analysis-of-Heroin-Addiction-Treatment-A-Comparative-Study-of-Methadone-Treatment-Clinics
 This project examines the effectiveness of two different methadone clinics that treat heroin addicts. Methadone is a synthetic opiate proven useful for heroin addiction treatment; it blocks the effects of heroin and eliminates withdrawal symptoms.
 The dataset used in this project contains information on 238 heroin addicts and compares the two clinics based on how long patients remain in treatment. The clinics differ according to their policies for patients (live-in vs. not).
